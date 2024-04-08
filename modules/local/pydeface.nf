@@ -88,4 +88,4 @@ process PYDEFACE {
         pydeface: \$(samtools --version |& sed '1!d ; s/samtools //')
     END_VERSIONS
     """
-}
+
