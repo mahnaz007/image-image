@@ -1,97 +1,48 @@
 #!/usr/bin/env nextflow
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    image/image
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    Github : https://github.com/image/image
-----------------------------------------------------------------------------------------
-*/
 
-nextflow.enable.dsl = 2
+nextflow.enable.dsl=2
 
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    IMPORT FUNCTIONS / MODULES / SUBWORKFLOWS / WORKFLOWS
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
+params.inputDir = '/Users/mahi021/Psychatry-department-data/Rawdata_MRscanner/10/ccplac/Anatomie_raw'
+params.outputDir = '/Users/mahi021/Psychatry-department-data/Rawdata_MRscanner/10/ccplac/Output'
 
-include { IMAGE  } from './workflows/image'
-include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_image_pipeline'
-include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_image_pipeline'
+process CONVERTDICOMTONIFTITHIRDSECOUND {
+    input:
+        path dicomFiles
 
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    NAMED WORKFLOWS FOR PIPELINE
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
+    output:
+        path "*.nii", emit: nii
 
-//
-// WORKFLOW: Run main analysis pipeline depending on type of input
-//
-workflow IMAGE_IMAGE {
-
-    take:
-    samplesheet // channel: samplesheet read in from --input
-
-    main:
-
-    //
-    // WORKFLOW: Run pipeline
-    //
-    IMAGE (
-        samplesheet
-    )
-
-    emit:
-    multiqc_report = IMAGE.out.multiqc_report // channel: /path/to/multiqc_report.html
-
+    script:
+        """
+        dcm2niix -o . -f '%p_%s' ${dicomFiles}
+        """
 }
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    RUN MAIN WORKFLOW
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
+
+process PyDeface {
+    tag "${niftiFiles.baseName}"
+
+    input:
+        path niftiFiles
+
+    output:
+        path "defaced_*.nii", emit: nii
+
+    script:
+        """
+        pydeface ${niftiFiles} --outfile defaced_${niftiFiles.baseName}.nii
+        """
+}
+
+include {PyDeface} from './modules/PyDeface/main.nf'
+include {CONVERTDICOMTONIFTITHIRDSECOUND} from './modules/CONVERTDICOMTONIFTITHIRDSECOUND/main.nf'
 
 workflow {
+    // Adjust the pattern to match all files if they don't have a specific extension
+    dicomChannel = Channel.fromPath("${params.inputDir}/*", checkIfExists: true)
 
-    main:
+    // Convert DICOM to NIFTI
+    niftiChannel = CONVERTDICOMTONIFTITHIRDSECOUND(dicomChannel)
 
-    //
-    // SUBWORKFLOW: Run initialisation tasks
-    //
-    PIPELINE_INITIALISATION (
-        params.version,
-        params.help,
-        params.validate_params,
-        params.monochrome_logs,
-        args,
-        params.outdir,
-        params.input
-    )
-
-    //
-    // WORKFLOW: Run main workflow
-    //
-    IMAGE_IMAGE (
-        PIPELINE_INITIALISATION.out.samplesheet
-    )
-
-    //
-    // SUBWORKFLOW: Run completion tasks
-    //
-    PIPELINE_COMPLETION (
-        params.email,
-        params.email_on_fail,
-        params.plaintext_email,
-        params.outdir,
-        params.monochrome_logs,
-        params.hook_url,
-        IMAGE_IMAGE.out.multiqc_report
-    )
+    // Deface NIFTI files
+    defacedChannel = PyDeface(niftiChannel)
 }
-
-/*
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    THE END
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*/
